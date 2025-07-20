@@ -3,10 +3,10 @@ import uuid
 import json
 import asyncio
 from datetime import datetime
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 from fastapi import FastAPI, HTTPException, WebSocket, BackgroundTasks, status
 from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 import aiohttp
 from dotenv import load_dotenv
 
@@ -31,12 +31,18 @@ app = FastAPI(
 # Models
 class DeploymentRequest(BaseModel):
     requirements: str = Field(..., min_length=10, max_length=1000)
-    cloud_provider: str = Field("aws", regex="^(aws|azure|gcp)$")
-    notify_email: Optional[str] = Field(None, regex=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+    cloud_provider: str = Field(default="aws", pattern="^(aws|azure|gcp)$")
+    notify_email: Optional[str] = Field(default=None, pattern=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+
+    @field_validator('requirements')
+    def validate_requirements(cls, v):
+        if any(bad_word in v.lower() for bad_word in ["drop table", "rm -rf", "sudo"]):
+            raise ValueError("Potential malicious code detected")
+        return v
 
 class SecurityScanRequest(BaseModel):
     code: str = Field(..., min_length=1)
-    language: str = Field(..., regex="^(python|javascript|go|java)$")
+    language: str = Field(..., pattern="^(python|javascript|go|java)$")
 
 # Core Systems
 class DeploymentEngine:
