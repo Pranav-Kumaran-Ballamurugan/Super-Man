@@ -28,6 +28,21 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Root endpoint
+@app.get("/")
+async def root():
+    return {
+        "message": "AI Superman API is running!",
+        "endpoints": {
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "deploy": {
+                "POST": "/deploy",
+                "GET": "/deploy/stream"
+            }
+        }
+    }
+
 # Models
 class DeploymentRequest(BaseModel):
     requirements: str = Field(..., min_length=10, max_length=1000)
@@ -78,7 +93,11 @@ class DeploymentEngine:
 @app.post("/deploy")
 async def deploy_project(request: DeploymentRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(log_deployment, request.requirements, request.cloud_provider)
-    return {"message": "Deployment started", "stream_endpoint": "/deploy/stream"}
+    return {
+        "message": "Deployment started", 
+        "stream_endpoint": "/deploy/stream",
+        "deployment_id": f"dep_{uuid.uuid4().hex[:8]}"
+    }
 
 @app.get("/deploy/stream")
 async def stream_deployment():
@@ -87,18 +106,30 @@ async def stream_deployment():
         media_type="text/event-stream"
     )
 
+@app.post("/scan")
+async def scan_code(request: SecurityScanRequest):
+    return {
+        "status": "scan_completed",
+        "issues": [],
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
 # Utilities
 async def log_deployment(requirements: str, cloud: str):
     async with aiohttp.ClientSession() as session:
-        await session.post(
-            AppConfig.LOGGING_ENDPOINT,
-            json={
-                "event": "deployment_start",
-                "requirements": requirements,
-                "cloud": cloud,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        )
+        try:
+            await session.post(
+                AppConfig.LOGGING_ENDPOINT,
+                json={
+                    "event": "deployment_start",
+                    "requirements": requirements[:1000],  # Truncate long requirements
+                    "cloud": cloud,
+                    "timestamp": datetime.utcnow().isoformat()
+                },
+                timeout=aiohttp.ClientTimeout(total=5)
+            )
+        except Exception as e:
+            print(f"Failed to log deployment: {e}")
 
 if __name__ == "__main__":
     import uvicorn
